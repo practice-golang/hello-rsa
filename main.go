@@ -1,61 +1,106 @@
 package main // import "hello-rsa"
 
 import (
-	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"log"
+	"os"
 	"reflect"
 )
 
-func generatePrivateKEY() (string, *rsa.PrivateKey, error) {
+func getPrivateKey() (keyString string, err error) {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
-		return "", key, err
+		return "", err
 	}
 
 	keyBytes, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
-		return "", key, err
+		return "", err
 	}
 
 	keyBlock := pem.Block{Type: "PRIVATE KEY", Bytes: keyBytes}
-	keyString := string(pem.EncodeToMemory(&keyBlock))
+	keyString = string(pem.EncodeToMemory(&keyBlock))
 
-	return keyString, key, err
+	return keyString, err
 }
 
-func getDKIM(pemKey *rsa.PrivateKey) (string, crypto.PublicKey, string, error) {
-	key := pemKey.Public()
-	if reflect.TypeOf(key).String() != "*rsa.PublicKey" {
-		return "", key, "", fmt.Errorf("not rsa")
+func getPublicKey(privateString string) (publicKeyString string, dkim string, err error) {
+	privateBlock, rest := pem.Decode([]byte(privateString))
+	if len(rest) > 0 {
+		log.Fatal(len(rest))
 	}
 
-	keyBytes, err := x509.MarshalPKIXPublicKey(key)
+	privateKey, err := x509.ParsePKCS8PrivateKey(privateBlock.Bytes)
 	if err != nil {
-		return "", key, "", err
+		log.Fatal("ParsePKCS8PrivateKey:", err)
 	}
 
-	keyBlock := pem.Block{Type: "PUBLIC KEY", Bytes: keyBytes}
-	keyString := string(pem.EncodeToMemory(&keyBlock))
+	if reflect.TypeOf(privateKey).String() != "*rsa.PrivateKey" {
+		return "", "", fmt.Errorf("pkey is not *rsa.PrivateKey")
+	}
 
-	dkim := "v=DKIM1;k=rsa;p=" + base64.StdEncoding.EncodeToString(keyBytes)
+	publicKey := privateKey.(*rsa.PrivateKey).Public()
+	if reflect.TypeOf(publicKey).String() != "*rsa.PublicKey" {
+		return "", "", fmt.Errorf("not rsa")
+	}
 
-	return keyString, key, dkim, err
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return "", "", err
+	}
+
+	publicKeyBlock := pem.Block{Type: "PUBLIC KEY", Bytes: publicKeyBytes}
+	publicKeyString = string(pem.EncodeToMemory(&publicKeyBlock))
+
+	dkim = "v=DKIM1;k=rsa;p=" + base64.StdEncoding.EncodeToString(publicKeyBytes)
+
+	return publicKeyString, dkim, err
+}
+
+func writeToFile(data, filename string) (err error) {
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.WriteString(data)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func main() {
-	privString, priv, err := generatePrivateKEY()
+	privString, err := getPrivateKey()
 	if err != nil {
-		panic(err)
+		log.Fatal("generatePrivateKEY:", err)
 	}
 
-	pubString, _, dkim, err := getDKIM(priv)
+	pubString, dkim, err := getPublicKey(privString)
 	if err != nil {
-		panic(err)
+		log.Fatal("getDKIM:", err)
+	}
+
+	err = writeToFile(privString, "key.pem")
+	if err != nil {
+		log.Fatal("writeToFile: key.pem", err)
+	}
+
+	err = writeToFile(pubString, "key.pub")
+	if err != nil {
+		log.Fatal("writeToFile: key.pub", err)
+	}
+
+	err = writeToFile(dkim, "dkim.txt")
+	if err != nil {
+		log.Fatal("writeToFile: dkim.txt", err)
 	}
 
 	fmt.Println(privString)

@@ -10,9 +10,9 @@ practice
 
 ```powershell
 $ openssl genrsa -out key.pem 1024
-$ openssl rsa -in key.pub -pubout -out key.pem
+$ openssl rsa -in pub.pem -pubout -out key.pem
 # dkim
-# v=DKIM1;k=rsa;p=value_of_key.pem
+# v=DKIM1;k=rsa;p=public_key_value_in_pub.pem
 ```
 
 
